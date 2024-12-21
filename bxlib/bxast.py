@@ -95,11 +95,6 @@ class VarDeclStatement(Statement):
 
 # --------------------------------------------------------------------
 @dc.dataclass
-class ExceptionDeclStatement(Statement):
-    name: Name
-
-# --------------------------------------------------------------------
-@dc.dataclass
 class AssignStatement(Statement):
     lhs: Name
     rhs: Expression
@@ -143,6 +138,23 @@ class ReturnStatement(Statement):
     expr: Opt[Expression]
 
 # --------------------------------------------------------------------
+@dc.dataclass
+class RaiseStatement(Statement):
+    name: Name
+
+# --------------------------------------------------------------------
+@dc.dataclass
+class TryCatchStatement(Statement):
+    try_: BlockStatement
+    catches: list[tuple[Name, Statement]]
+
+# --------------------------------------------------------------------
+@dc.dataclass
+class CatchClause(AST):
+    exception: Name
+    body: Statement
+
+# --------------------------------------------------------------------
 class TopDecl(AST):
     pass
 
@@ -152,6 +164,11 @@ class GlobVarDecl(TopDecl):
     name: Name
     init: Expression
     type_: Type
+
+# --------------------------------------------------------------------
+@dc.dataclass
+class ExceptionDecl(TopDecl):
+    name: Name
 
 #--------------------------------------------------------------------
 @dc.dataclass

@@ -252,6 +252,39 @@ class Parser:
         """stmt : CONTINUE SEMICOLON"""
         p[0] = ContinueStatement(position = self._position(p))
 
+    def p_stmt_raise(self, p):
+        """stmt : RAISE name SEMICOLON"""
+        p[0] = RaiseStatement(
+            name     = p[2],
+            position = self._position(p),
+        )
+
+    def p_stmt_catch(self, p):
+        """catch : EXCEPT name sblock"""
+        p[0] = CatchClause(
+            exception = p[2],
+            body      = p[3],
+            position  = self._position(p),
+        )
+
+    # make a list of catch clauses
+    def p_stmt_catches(self, p):
+        """catches :
+                   | catches catch"""
+        if len(p) == 1:
+            p[0] = []
+        else:
+            p[0] = p[1]
+            p[0].append(p[2])
+
+    def p_stmt_trycatch(self, p):
+        """stmt : TRY sblock catches"""
+        p[0] = TryCatchStatement(
+            try_ = p[2],
+            catches = p[3],
+            position = self._position(p),
+        )
+
     def p_stmt_return_none(self, p):
         """stmt : RETURN SEMICOLON"""
         p[0] = ReturnStatement(expr = None, position = self._position(p))
@@ -339,7 +372,10 @@ class Parser:
     def p_exceptiondecl(self, p):
         """exceptiondecl : EXCEPTION name SEMICOLON"""
         # TODO: Implement this
-        print('Exception declaration not implemented', list(p))
+        p[0] = ExceptionDecl(
+            name     = p[2],
+            position = self._position(p),
+        )
 
     def p_topdecl(self, p):
         """topdecl : procdecl

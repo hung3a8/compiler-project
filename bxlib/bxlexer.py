@@ -26,6 +26,9 @@ class Lexer:
             'var'      ,
             'while'    ,
             'exception',
+            'raise'    ,
+            'try'      ,
+            'except'   ,
         )
     }
 

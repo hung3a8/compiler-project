@@ -45,6 +45,16 @@ class PreTyper:
 
                     scope.push(name.value, type_)
 
+                case ExceptionDecl(name):
+                    if name.value in scope:
+                        self.reporter(
+                            f'duplicated exception name: {name.value}',
+                            position = name.position
+                        )
+                        continue
+
+                    scope.push(name.value, Type.EXCEPTION)
+
                 case _:
                     assert(False)
 
@@ -241,6 +251,13 @@ class TypeChecker:
                         position = stmt.position,
                     )
 
+            case RaiseStatement(name):
+                if name.value not in self.scope:
+                    self.report(
+                        f'unknown exception: {name.value}',
+                        position = name.position,
+                    )
+
             case ReturnStatement(e):
                 if e is None:
                     if self.proc.rettype is not None:
@@ -291,6 +308,9 @@ class TypeChecker:
                         'this expression is not a literal',
                         position = init.position,
                     )
+
+            case ExceptionDecl(_):
+                pass
 
     def for_program(self, prgm : Program):
         for decl in prgm:
