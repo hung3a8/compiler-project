@@ -1,0 +1,8 @@
+*.exe
+*.o
+*.s
+test*
+
+# Python
+__pycache__/
+*.pyc
