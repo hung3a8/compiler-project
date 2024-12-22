@@ -29,6 +29,7 @@ class Lexer:
             'raise'    ,
             'try'      ,
             'except'   ,
+            'raises'   ,
         )
     }
 

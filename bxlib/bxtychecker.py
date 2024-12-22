@@ -252,9 +252,21 @@ class TypeChecker:
                     )
 
             case RaiseStatement(name):
+                if not self.proc:
+                    self.report(
+                        'raise statement outside of a procedure',
+                        position = stmt.position,
+                    )
+
                 if name.value not in self.scope:
                     self.report(
                         f'unknown exception: {name.value}',
+                        position = name.position,
+                    )
+
+                if name.value not in [x.value for x in self.proc.raises]:
+                    self.report(
+                        f'exception not declared in the procedure signature: {name.value}',
                         position = name.position,
                     )
 
@@ -266,7 +278,6 @@ class TypeChecker:
                             f'unknown exception: {name.value}',
                             position = name.position,
                         )
-                    print(catch.body)
                     self.for_statement(catch.body)
 
             case ReturnStatement(e):
@@ -296,7 +307,7 @@ class TypeChecker:
 
     def for_topdecl(self, decl : TopDecl):
         match decl:
-            case ProcDecl(name, arguments, retty, body):
+            case ProcDecl(name, arguments, retty, raises, body):
                 with self.in_proc(decl):
                     for vnames, vtype_ in arguments:
                         for vname in vnames:

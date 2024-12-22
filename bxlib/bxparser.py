@@ -350,13 +350,19 @@ class Parser:
                | COLON type"""
         p[0] = None if len(p) == 1 else p[2]
 
+    def p_procraises(self, p):
+        """procraises :
+                      | RAISES names_comma1"""
+        p[0] = [] if len(p) == 1 else p[2]
+
     def p_procdecl(self, p):
-        """procdecl : DEF name LPAREN args RPAREN rty sblock"""
+        """procdecl : DEF name LPAREN args RPAREN rty procraises sblock"""
         p[0] = ProcDecl(
             name      = p[2],
             arguments = p[4],
             rettype   = p[6],
-            body      = p[7],
+            raises    = p[7],
+            body      = p[8],
             position  = self._position(p),
         )
 
