@@ -267,12 +267,11 @@ class Parser:
             position  = self._position(p),
         )
 
-    # make a list of catch clauses
     def p_stmt_catches(self, p):
-        """catches :
+        """catches : catch
                    | catches catch"""
-        if len(p) == 1:
-            p[0] = []
+        if len(p) == 2:
+            p[0] = [p[1]]
         else:
             p[0] = p[1]
             p[0].append(p[2])

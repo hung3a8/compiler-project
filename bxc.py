@@ -9,6 +9,7 @@ import os
 import platform
 import subprocess as sp
 import sys
+import json
 
 from bxlib.bxast        import *
 from bxlib.bxerrors     import Reporter, DefaultReporter
@@ -27,6 +28,10 @@ def parse_args():
     parser.add_argument(
         '--arch', choices = sorted(AsmGen.BACKENDS.keys()),
         help = 'Target architecture')
+
+    parser.add_argument(
+        '--typecheck', action = 'store_true',
+        help = 'Type check the program and exit')
 
     parser.add_argument('input', help = 'input file (.bx)')
 
@@ -70,6 +75,9 @@ def _main():
 
     if not tycheck(prgm, reporter = reporter):
         exit(1)
+
+    if args.typecheck:
+        exit(0)
 
     tac = MM.mm(prgm)
 

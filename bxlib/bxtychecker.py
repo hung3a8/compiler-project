@@ -9,7 +9,8 @@ from .bxscope  import Scope
 
 # ====================================================================
 SigType    = tuple[tuple[Type], Opt[Type]]
-ProcSigMap = dict[str, SigType]
+SigRaises = tuple[Name]
+ProcSigMap = dict[str, SigType, SigRaises]
 
 # --------------------------------------------------------------------
 class PreTyper:
@@ -22,7 +23,7 @@ class PreTyper:
 
         for topdecl in prgm:
             match topdecl:
-                case ProcDecl(name, arguments, rettype, body):
+                case ProcDecl(name, arguments, rettype, raises, body):
                     if name.value in procs:
                         self.reporter(
                             f'duplicated procedure name: {name.value}',
@@ -32,7 +33,8 @@ class PreTyper:
 
                     procs[name.value] = (
                         tuple(it.chain(*((x[1],) * len(x[0]) for x in arguments))),
-                        Type.VOID if rettype is None else rettype
+                        Type.VOID if rettype is None else rettype,
+                        tuple(raises),
                     )
 
                 case GlobVarDecl(name, init, type_):
@@ -47,10 +49,16 @@ class PreTyper:
 
                 case ExceptionDecl(name):
                     if name.value in scope:
-                        self.reporter(
-                            f'duplicated exception name: {name.value}',
-                            position = name.position
-                        )
+                        if scope[name.value] != Type.EXCEPTION:
+                            self.reporter(
+                                f'{name.value} is not an exception',
+                                position = name.position,
+                            )
+                        else:
+                            self.reporter(
+                                f'duplicated exception name: {name.value}',
+                                position = name.position
+                            )
                         continue
 
                     scope.push(name.value, Type.EXCEPTION)
@@ -60,9 +68,9 @@ class PreTyper:
 
         if 'main' not in procs:
             self.reporter('this program is missing a main subroutine')
-        elif procs['main'] != ((), Type.VOID):
+        elif procs['main'] != ((), Type.VOID, ()):
             self.reporter(
-                '"main" should not take any argument and should not return any value'
+                '"main" should not take any argument and should not return any value or raise any exception',
             )
 
         return scope, procs
@@ -100,7 +108,9 @@ class TypeChecker:
         self.scope    = scope
         self.procs    = procs
         self.loops    = 0
+
         self.proc     = None
+
         self.reporter = reporter
 
     def report(self, msg: str, position: Opt[Range] = None):
@@ -169,7 +179,7 @@ class TypeChecker:
                 type_ = opsig[1]
 
             case CallExpression(name, arguments):
-                atypes, retty = [], None
+                atypes, retty, raises = [], None, []
 
                 if name.value not in self.procs:
                     self.report(
@@ -177,7 +187,7 @@ class TypeChecker:
                         position = name.position,
                     )
                 else:
-                    atypes, retty = self.procs[name.value]
+                    atypes, retty, raises = self.procs[name.value]
 
                     if len(atypes) != len(arguments):
                         self.report(
@@ -189,6 +199,9 @@ class TypeChecker:
                     self.for_expression(a, atypes[i] if i in range(len(atypes)) else None)
 
                 type_ = retty
+
+                for r in raises:
+                    self.scope.push_exception(r.value)
 
             case PrintExpression(e):
                 self.for_expression(e)
@@ -203,7 +216,6 @@ class TypeChecker:
                 type_ = Type.VOID
 
             case _:
-                print(expr)
                 assert(False)
 
         if type_ is not None:
@@ -264,21 +276,33 @@ class TypeChecker:
                         position = name.position,
                     )
 
-                if name.value not in [x.value for x in self.proc.raises]:
-                    self.report(
-                        f'exception not declared in the procedure signature: {name.value}',
-                        position = name.position,
-                    )
+                self.scope.push_exception(name.value)
 
             case TryCatchStatement(try_, catches):
                 self.for_statement(try_)
                 for catch in catches:
-                    if catch.exception.value not in self.scope:
+                    if catch.exception.value not in self.scope or self.scope[catch.exception.value] != Type.EXCEPTION:
                         self.report(
-                            f'unknown exception: {name.value}',
-                            position = name.position,
+                            f'unknown exception: {catch.exception.value}',
+                            position = catch.exception.position,
                         )
-                    self.for_statement(catch.body)
+                    if sum(1 for c in catches if c.exception.value == catch.exception.value) > 1:
+                        self.report(
+                            f'multiple catches for the same exception: {catch.exception.value}',
+                            position = catch.exception.position,
+                        )
+                    self.for_statement(catch)
+
+            case CatchClause(exception, body) as clause:
+                self.for_statement(body)
+
+                try:
+                    self.scope.pop_exception(exception.value)
+                except AssertionError:
+                    self.report(
+                        f'catching is unreachable: {exception.value}',
+                        position = exception.position,
+                    )
 
             case ReturnStatement(e):
                 if e is None:
@@ -297,7 +321,6 @@ class TypeChecker:
                         self.for_expression(e, etype = self.proc.rettype)
 
             case _:
-                print(stmt)
                 assert(False)
 
     def for_block(self, block : Block):
@@ -308,6 +331,24 @@ class TypeChecker:
     def for_topdecl(self, decl : TopDecl):
         match decl:
             case ProcDecl(name, arguments, retty, raises, body):
+                for r in raises:
+                    if r.value not in self.scope:
+                        self.report(
+                            f'unknown exception: {r.value}',
+                            position = r.position,
+                        )
+                    if self.scope[r.value] != Type.EXCEPTION:
+                        self.report(
+                            f'{r.value} is not an exception',
+                            position = r.position,
+                        )
+
+                if len(raises) != len(set(r.value for r in raises)):
+                    self.report(
+                        'duplicated raise in a procedure',
+                        position = decl.position,
+                    )
+
                 with self.in_proc(decl):
                     for vnames, vtype_ in arguments:
                         for vname in vnames:
@@ -321,6 +362,12 @@ class TypeChecker:
                                 'this function is missing a return statement',
                                 position = decl.position,
                             )
+
+                    for r in raises:
+                        try:
+                            self.scope.pop_exception(r.value)
+                        except AssertionError:
+                            pass
 
             case GlobVarDecl(name, init, type_):
                 self.for_expression(init, etype = type_)
@@ -338,9 +385,18 @@ class TypeChecker:
         for decl in prgm:
             self.for_topdecl(decl)
 
+        if self.scope.unhandled_exceptions[-1]:
+            self.report(
+                'unhandled exceptions: ' + ', '.join(self.scope.unhandled_exceptions[-1]),
+                position = prgm[-1].position,
+            )
+
     def check_constant(self, expr: Expression):
         match expr:
             case IntExpression(_):
+                return True
+
+            case BoolExpression(_):
                 return True
 
             case _:
@@ -351,6 +407,9 @@ class TypeChecker:
             case ReturnStatement(_):
                 return True
 
+            case RaiseStatement(_):
+                return True
+
             case IfStatement(_, iftrue, iffalse):
                 return \
                     self.has_return(iftrue) and \
@@ -358,6 +417,11 @@ class TypeChecker:
 
             case BlockStatement(block):
                 return any(self.has_return(b) for b in block)
+
+            case TryCatchStatement(try_, catches):
+                return \
+                    self.has_return(try_) and \
+                    all(self.has_return(c.body) for c in catches)
 
             case _:
                 return False

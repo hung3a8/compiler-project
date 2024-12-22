@@ -13,6 +13,7 @@ from .bxtac   import *
 
 class MM:
     _counter = -1
+    _exception_counter = 0
 
     PRINTS = {
         Type.INT  : 'print_int',
@@ -23,7 +24,11 @@ class MM:
         self._proc    = None
         self._tac     = []
         self._scope   = Scope()
+
         self._loops   = []
+        self._exception_stack = []
+
+        self._exception_map = dict()
 
     tac = property(lambda self: self._tac)
 
@@ -41,6 +46,11 @@ class MM:
     def fresh_label(cls):
         cls._counter += 1
         return f'.L{cls._counter}'
+
+    @classmethod
+    def new_exception_label(cls):
+        cls._exception_counter += 1
+        return cls._exception_counter
 
     def push(
         self,
@@ -61,17 +71,32 @@ class MM:
         finally:
             self._loops.pop()
 
+    def add_exception_value(self):
+        self._tac.append(TACVar('exception', 0))
+        # self._scope.push('exception', '@exception')
+
+
     def for_program(self, prgm: Program):
-        for decl in prgm:
-            match decl:
-                case GlobVarDecl(name, init, type_):
-                    assert(isinstance(init, IntExpression))
-                    self._tac.append(TACVar(name.value, init.value))
-                    self._scope.push(name.value, f'@{name.value}')
+        self.add_exception_value()
 
         for decl in prgm:
             match decl:
-                case ProcDecl(name, arguments, retty, body):
+                case GlobVarDecl(name, init, type_):
+                    if isinstance(init, IntExpression):
+                        self._tac.append(TACVar(name.value, init.value))
+                        self._scope.push(name.value, f'@{name.value}')
+                    elif isinstance(init, BoolExpression):
+                        self._tac.append(TACVar(name.value, 1 if init.value else 0))
+                        self._scope.push(name.value, f'@{name.value}')
+                    else:
+                        assert(False)
+
+                case ExceptionDecl(name):
+                    self._exception_map[name.value] = self.new_exception_label()
+
+        for decl in prgm:
+            match decl:
+                case ProcDecl(name, arguments, retty, raises, body):
                     assert(self._proc is None)
                     with self._scope.in_subscope():
                         arguments = list(it.chain(*(x[0] for x in arguments)))
@@ -87,7 +112,7 @@ class MM:
                         self.for_statement(body)
 
                         if name.value == 'main':
-                            self.for_statement(ReturnStatement(IntExpression(0)));
+                            self.for_statement(ReturnStatement(IntExpression(0)))
 
                         self._tac.append(self._proc)
                         self._proc = None
@@ -154,8 +179,51 @@ class MM:
                     temp = self.for_expression(expr)
                     self.push('ret', temp)
 
-            case _:
-                assert(False)
+            case TryCatchStatement(try_, catches):
+                exception_handler_label = self.fresh_label()
+                next_instr_label = self.fresh_label()
+
+                self._exception_stack.append((exception_handler_label, next_instr_label))
+
+                self.for_statement(try_)
+                self.push_label(exception_handler_label)
+                for catch_clause in catches:
+                    exception_hash = self._exception_map[catch_clause.exception.value]
+                    tmp = self.fresh_temporary()
+                    self.push('const', exception_hash, result = tmp)
+                    self.push(OPCODES['subtraction'], '@exception', tmp, result = tmp)
+
+                    next_exception_label = self.fresh_label()
+                    self.push('jnz', tmp, next_exception_label)
+
+                    self.for_statement(catch_clause.body)
+                    self.push(OPCODES['bitwise-xor'], '@exception', '@exception', result = '@exception')
+                    self.push('jmp', next_instr_label)
+
+                    self.push_label(next_exception_label)
+
+                self._exception_stack.pop()
+                self.check_if_exception_set()
+                self.push_label(next_instr_label)
+
+            case RaiseStatement(name):
+                self.set_exception(name)
+                self.check_if_exception_set()
+
+
+    def set_exception(self, name):
+        tmp = self.fresh_temporary()
+        self.push('const', self._exception_map[name.value], result = tmp)
+        self.push('copy', tmp, result = '@exception')
+
+    def check_if_exception_set(self):
+        if self._exception_stack:
+            self.push('jnz', '@exception', self._exception_stack[-1][0])
+        else:
+            label = self.fresh_label()
+            self.push('jz', '@exception', label)
+            self.push('ret')
+            self.push_label(label)
 
     def for_expression(self, expr: Expression, force = False) -> str:
         target = None
@@ -192,6 +260,9 @@ class MM:
                     if expr.type_ != Type.VOID:
                         target = self.fresh_temporary()
                     self.push('call', proc.value, len(arguments), result = target)
+
+                    self.check_if_exception_set()
+
 
                 case PrintExpression(argument):
                     temp = self.for_expression(argument)
