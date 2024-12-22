@@ -144,15 +144,15 @@ class RaiseStatement(Statement):
 
 # --------------------------------------------------------------------
 @dc.dataclass
-class TryCatchStatement(Statement):
-    try_: BlockStatement
-    catches: list[tuple[Name, Statement]]
+class CatchClause(AST):
+    exception: Name
+    body: BlockStatement
 
 # --------------------------------------------------------------------
 @dc.dataclass
-class CatchClause(AST):
-    exception: Name
-    body: Statement
+class TryCatchStatement(Statement):
+    try_: BlockStatement
+    catches: list[CatchClause]
 
 # --------------------------------------------------------------------
 class TopDecl(AST):

@@ -258,6 +258,17 @@ class TypeChecker:
                         position = name.position,
                     )
 
+            case TryCatchStatement(try_, catches):
+                self.for_statement(try_)
+                for catch in catches:
+                    if catch.exception.value not in self.scope:
+                        self.report(
+                            f'unknown exception: {name.value}',
+                            position = name.position,
+                        )
+                    print(catch.body)
+                    self.for_statement(catch.body)
+
             case ReturnStatement(e):
                 if e is None:
                     if self.proc.rettype is not None:
